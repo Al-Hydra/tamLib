@@ -1,59 +1,67 @@
-from utils.PyBinaryReader.binary_reader import *
+from .utils.PyBinaryReader.binary_reader import *
+from .pzze import readPZZE
 import numpy as np
+
+
 class TMD2(BrStruct):
 
     def __init__(self) -> None:
         self.magic = 'tmd0'
+        self.name = ""
+        self.bones = []
+        self.models = []
+        self.indexTables = []
+        self.textures = []
         
-    def __br_read__(self, br: 'BinaryReader', *args) -> None:
+    def __br_read__(self, br: 'BinaryReader', file_name = "") -> None:
 
         self.magic = br.read_str(4)
         if self.magic != 'tmd0':
             raise ValueError(f"Invalid magic: {self.magic}")
+
+        if file_name:
+            self.name = file_name
         
         unk0 = br.read_uint16()
-        self.vertexFlag1 = br.read_uint8()
-        self.vertexFlag2 = br.read_uint8()
+        self.modelFlags = br.read_uint16()
         unk1 = br.read_uint32()
         unk2 = br.read_uint16()
         self.frameCount = br.read_int16()
         self.boundingBox = br.read_float32(6)
         self.modelsOffset = br.read_uint64()
         unk3 = br.read_uint32()
-        self.subMeshOffset = br.read_uint32()
+        self.subMeshEntriesOffset = br.read_uint32()
         self.materialsOffset = br.read_uint32()
         self.shaderParamsOffset = br.read_uint32()
         self.namesOffset = br.read_uint64()
-        self.subMeshOffset2 = br.read_uint32()
+        self.subMeshOffset = br.read_uint32()
         self.trianglesOffset = br.read_uint32()
         self.texturesOffset = br.read_uint64()
         self.materialTexturesOffset = br.read_uint32()
         self.verticesOffset = br.read_uint32()
         self.unkOffset = br.read_uint64()
         self.modelCount = br.read_uint32()
-        unk4 = br.read_uint32()
-        unk5 = br.read_uint32()
-        self.subMeshCount = br.read_uint32()
+        unk4 = br.read_uint64()
+        self.subMeshEntriesCount = br.read_uint32()
         self.materialCount = br.read_uint32()
         self.shaderParamsCount = br.read_uint32()
-        unk6 = br.read_uint32()
-        unk7 = br.read_uint32()
-        self.subMeshCount2 = br.read_uint32()
+        unk5 = br.read_uint64()
+        self.subMeshCount = br.read_uint32()
         self.trianglesCount = br.read_uint32()
-        self.textureCount = br.read_uint32()
-        unk8 = br.read_uint32()
+        self.textureCount = br.read_uint64()
         self.materialTextureCount = br.read_uint32()
         self.vertexCount = br.read_uint32()
-        self.triangleInfoStart = br.read_uint32()
-        unk9 = br.read_uint32()
-        self.boneMatrixOffset = br.read_uint32()
-        self.boneHierarchyOffset = br.read_uint32()
-        unk10 = br.read_uint32()
-        unk11 = br.read_uint32()
-        self.boneCount = br.read_uint32()
-        unk12 = br.read_uint32()
-        self.extraBoneInfoOffset = br.read_uint32()
-        self.boneHierarchyOffset2 = br.read_uint32()
+        if self.modelFlags & 0x2000:
+            self.indexTablesOffset = br.read_uint32()
+            self.tableIndicesOffset = br.read_uint32()
+            self.boneMatrixOffset = br.read_uint32()
+            self.boneHierarchyOffset = br.read_uint32()
+            self.indexTablesCount = br.read_uint32()
+            self.tableIndicesCount = br.read_uint32()
+            self.boneCount = br.read_uint32()
+            self.totalBoneCount = br.read_uint32()
+            self.extraBoneInfoOffset = br.read_uint32()
+            self.boneHierarchyOffset2 = br.read_uint32()
         
         #Textures Info
         br.seek(self.texturesOffset, Whence.BEGIN)
@@ -65,19 +73,26 @@ class TMD2(BrStruct):
         
         #Shader Params Info
         br.seek(self.shaderParamsOffset, Whence.BEGIN)
-        self.shaderParams = [br.read_float64() for _ in range(self.shaderParamsCount)]
+        self.shaderParams = [br.read_float32(2)[1] for _ in range(self.shaderParamsCount)]
         
         #Material Info
         br.seek(self.materialsOffset, Whence.BEGIN)
-        self.materials = br.read_struct(TMD2Material, self.materialCount, self.textures, self.shaderParams)
+        self.materials = br.read_struct(TMD2Material, self.materialCount, self.materialTextures, self.shaderParams)
 
+        
+        def unpack_normals(v):
+            # Strip 4th component and normalize XYZ
+            f = ((v[..., :3].astype(np.float32) / 255.0) * 2.0) - 1.0
+            norm = np.linalg.norm(f, axis=-1, keepdims=True)
+            norm[norm == 0] = 1.0
+            return f / norm
         
         # Define converters for specific attributes
         _attribute_converters = {
-            'normal':      lambda v: (v.astype(np.float32) / 127.5) - 1.0,
-            'normal2':     lambda v: (v.astype(np.float32) / 127.5) - 1.0,
-            'tangent':     lambda v: (v.astype(np.float32) / 127.5) - 1.0,
-            'binormal':    lambda v: (v.astype(np.float32) / 127.5) - 1.0,
+            'normal':      unpack_normals,
+            'normal2':     unpack_normals,
+            'tangent':     unpack_normals,
+            'binormal':    unpack_normals,
             'color':       lambda v: v.astype(np.float32) / 255.0,
             'color2':      lambda v: v.astype(np.float32) / 255.0,
             'boneWeights': lambda v: v.astype(np.float32) / 255.0,
@@ -86,38 +101,38 @@ class TMD2(BrStruct):
 
         # Determine vertex attributes based on flags
         vertex_attributes = []
-        if self.vertexFlag1 & 2:
+        if self.modelFlags & 0x2:
             vertex_attributes.append(('position', 'f4', 3))
 
-        if self.vertexFlag2 & 4:
+        if self.modelFlags & 0x400:
             vertex_attributes.append(('boneWeights', 'u1', 4))
             vertex_attributes.append(('boneIDs', 'u1', 4))
 
-        if self.vertexFlag2 & 2:
+        if self.modelFlags & 0x8000:
             vertex_attributes.append(('boneWeights2', 'u1', 4))
             vertex_attributes.append(('boneIDs2', 'u1', 4))
 
-        if self.vertexFlag1 & 4:
+        if self.modelFlags & 0x4:
             vertex_attributes.append(('normal', 'u1', 4))
 
-        if self.vertexFlag1 & 8:
+        if self.modelFlags & 0x8:
             vertex_attributes.append(('tangent', 'u1', 4))
             vertex_attributes.append(('binormal', 'u1', 4))
 
-        if self.vertexFlag1 & 128:
+        if self.modelFlags & 0x80:
             vertex_attributes.append(('color', 'u1', 4))
 
-        if self.vertexFlag2 & 16:
+        if self.modelFlags & 0x100:
             vertex_attributes.append(('normal2', 'u1', 4))
 
-        if self.vertexFlag2 & 128:
+        if self.modelFlags & 0x200:
             vertex_attributes.append(('color2', 'u1', 4))
 
-        if self.vertexFlag1 & 16:
+        if self.modelFlags & 0x10:
             vertex_attributes.append(('uv', 'f4', 2))
-        if self.vertexFlag1 & 32:
+        if self.modelFlags & 0x20:
             vertex_attributes.append(('uv2', 'f4', 2))
-        if self.vertexFlag1 & 64:
+        if self.modelFlags & 0x40:
             vertex_attributes.append(('uv3', 'f4', 2))
 
         # Read vertex buffer
@@ -141,30 +156,141 @@ class TMD2(BrStruct):
             for name in converted_attributes:
                 setattr(vertex, name, list(converted_attributes[name][i]))
 
-
-        print(self.vertices[0].__dict__)
-
+        #print(self.vertices[0].__dict__)
 
         # Read triangle info
-        br.seek(self.triangleInfoStart, Whence.BEGIN)
-        if self.vertexFlag2 & 8:
-            self.triangles = [br.read_uint32(3) for _ in range(self.trianglesCount // 3)]
+        br.seek(self.trianglesOffset, Whence.BEGIN)
+        if self.modelFlags & 0x800:
+            self.triangles = [br.read_uint32(3) for _ in range(self.trianglesCount)]
         else:
-            self.triangles = [br.read_uint16(3) for _ in range(self.trianglesCount // 3)]
+            self.triangles = [br.read_uint16(3) for _ in range(self.trianglesCount)]
 
-        # read skeleton info
-        br.seek(self.boneHierarchyOffset, Whence.BEGIN)
-        self.bones = br.read_struct(TMD2Bone, self.boneCount, self.namesOffset)
+
+        if self.modelFlags & 0x2000:
+            #read all indices for the index table
+            br.seek(self.tableIndicesOffset, Whence.BEGIN)
+            self.allIndices = [br.read_uint32() for i in range(self.tableIndicesCount)]
+            
+            #pass the indices list to the index table class and read the individual index tables
+            br.seek(self.indexTablesOffset, Whence.BEGIN)
+            self.indexTables = br.read_struct(TMD2IndexTable, self.indexTablesCount, self.allIndices)
+            
+            if not self.indexTables:
+                genericIndexTable = TMD2IndexTable()
+                genericIndexTable.indices = [i for i in range(self.boneCount)]
+                self.indexTables = [genericIndexTable]
+            
+            # read skeleton info
+            br.seek(self.boneHierarchyOffset, Whence.BEGIN)
+            self.bones = br.read_struct(TMD2Bone, self.boneCount, self.namesOffset)
+            
+            #read the matrix info
+            br.seek(self.boneMatrixOffset, Whence.BEGIN)
+            for i in range(self.boneCount):
+                self.bones[i].matrix = [br.read_float32(4) for _ in range(4)]
+            
+            br.seek(self.extraBoneInfoOffset, Whence.BEGIN)
+            for i in range(self.boneCount):
+                bone = self.bones[i]
+                bone.extra = br.read_int16()
+            
+            #print(self.bones[0].__dict__)
         
-        #read the matrix info
-        br.seek(self.boneMatrixOffset, Whence.BEGIN)
-        for i in range(self.boneCount):
-            self.bones[i].matrix = br.read_float32(16)
+        br.seek(self.subMeshEntriesOffset, Whence.BEGIN)
+        self.submeshEntries = br.read_struct(TMD2SubmeshEntry,self.subMeshEntriesCount)
         
-        print(self.bones[0].__dict__)
+        br.seek(self.subMeshOffset, Whence.BEGIN)
+        self.submeshes = br.read_struct(TMD2Submesh,self.subMeshCount, self.triangles, self.vertices)
+        
+        #read model info
+        br.seek(self.modelsOffset, Whence.BEGIN)
+        self.models = br.read_struct(TMD2Model, self.modelCount, self.indexTables, self.submeshEntries, self.submeshes, self.materials, self.namesOffset)
+                
         
     def __br_write__(self, br: 'BinaryReader', *args) -> None:
         pass
+
+
+class TMD2Model(BrStruct):
+    def __init__(self) -> None:
+        self.boundingBox = [0,0,0,0,0,0]
+        self.meshes = []
+        self.materials = []
+        self.name = ""
+    
+    def __br_read__(self, br: 'BinaryReader', indexTables, entries, submeshes, materials, namesOffset) -> None:
+        self.boundingBox = br.read_float32(6)
+        self.entriesCount = br.read_uint16()
+        self.unk0 =  br.read_uint16()
+        self.entriesStart = br.read_uint32()
+        self.nameOffset = br.read_int32()
+        self.unk1 =  br.read_uint32()
+        self.unk2 =  br.read_uint32()
+        
+        if namesOffset and self.nameOffset != -1:
+            self.name = br.read_str_at_offset(namesOffset + self.nameOffset)
+        else:
+            self.name = f"model_{str(self.unk1)}"
+        
+        materialIdx = -1
+        indexTable = indexTables[0]
+        
+        for entry in entries[self.entriesStart: self.entriesStart + self.entriesCount]:
+            if entry.type == 96:
+                self.materials.append(materials[entry.index])
+                materialIdx += 1
+            
+            elif entry.type == 64:
+                indexTable = indexTables[entry.index]
+            elif entry.type == 48:
+                mesh = submeshes[entry.index]
+                mesh.materialIndex = materialIdx
+                mesh.indexTable = indexTable.indices
+                self.meshes.append(mesh)
+            
+    
+    def __br_write__(self, br: 'BinaryReader', *args) -> None:
+        pass
+
+
+class TMD2Submesh(BrStruct):
+    def __init__(self):
+        self.triangles = []
+        self.vertices = []
+        self.materialIndex = 0
+        self.trianglesCount = 0
+        self.trianglesStart = 0
+        self.indexTable = []
+    
+    
+    def __br_read__(self, br, triangles, vertices):
+        self.trianglesCount = br.read_uint32()
+        self.trianglesStart = br.read_uint32()
+        
+        
+        vertex_map = {}  # Maps global index -> local index
+
+        for tris in triangles[self.trianglesStart : self.trianglesStart + self.trianglesCount]:
+            local_tri = []
+            for global_idx in tris:
+                if global_idx not in vertex_map:
+                    vertex_map[global_idx] = len(self.vertices)
+                    self.vertices.append(vertices[global_idx])
+                local_tri.append(vertex_map[global_idx])
+            self.triangles.append(local_tri)
+    
+    def __br_write__(self, br, triangles_buffer):
+        br.write_uint32(len(self.triangles))
+        br.write_uint32(triangles_buffer.size())
+
+class TMD2SubmeshEntry(BrStruct):
+    def __init__(self):
+        self.type = None
+        self.index = -1
+    
+    def __br_read__(self, br, *args):
+        self.index = br.read_uint8()
+        self.type = br.read_uint8()
 
 
 class TMD2Texture(BrStruct):
@@ -219,8 +345,9 @@ class TMD2Material(BrStruct):
         self.textureCount = br.read_uint16()
         self.textures = textures[self.textureStartIndex: self.textureStartIndex + self.textureCount]
         
-        self.shaderParamsStartIndex = br.read_uint32()
-        self.shaderParamsCount = br.read_uint32()
+        self.shaderParamsStartIndex = br.read_uint16()
+        self.shaderParamsCount = br.read_uint16()
+        self.unk = br.read_int32()
         self.shaderParams = params[self.shaderParamsStartIndex: self.shaderParamsStartIndex + self.shaderParamsCount]
 
     def __br_write__(self, br: 'BinaryReader', *args) -> None:
@@ -250,28 +377,58 @@ class TMD2Bone(BrStruct):
     def __init__(self) -> None:
         self.name = ''
         self.parentIndex = 0
-        self.headPosition = [0.0, 0.0, 0.0]
+        self.tailPosition = [0.0, 0.0, 0.0]
         self.matrix = np.zeros((4, 4), dtype=np.float32)
+        self.extra = -1
 
     def __br_read__(self, br: 'BinaryReader', namesOffset = -1) -> None:
         self.hash = br.read_uint32()
-        self.headPosition = br.read_float32(3)
+        self.tailPosition = br.read_float32(3)
         self.parentIndex = br.read_int32()
         
         self.unk1 = br.read_uint16()
         self.nameOffset = br.read_uint16()
+        if namesOffset != -1 and self.nameOffset != -1:
+            self.name = br.read_str_at_offset(namesOffset + self.nameOffset, encoding='utf-8')
+        else:
+            self.name = str(self.hash)
+
+
+class TMD2IndexTable(BrStruct):
+    def __init__(self):
+        self.indices = []
+        self.indicesCount = 0
+    
+    def __br_read__(self, br, tableIndices):
         
-        self.name = br.read_str_at_offset(namesOffset + self.nameOffset, encoding='utf-8')
+        self.indicesCount = br.read_uint32()
+        self.startIndex = br.read_uint32()
+        
+        self.indices = tableIndices[self.startIndex: self.startIndex + self.indicesCount]
 
-
-def read_tmd2(file: str) -> TMD2:
+'''
+def readTMD2(file: str) -> TMD2:
     with open(file, 'rb') as f:
-        br = BinaryReader(f.read(), Endian.LITTLE)
-        tmd2 = TMD2()
-        tmd2.__br_read__(br)
+        #read magic
+        magic = f.read(4).decode('utf-8')
+        if magic == "PZZE":
+            pzze = readPZZE(file)
+            
+            tmd_data = pzze.decompress
+            if tmd_data is None:
+                raise ValueError("Failed to decompress TMD2 data.")
+            if not tmd_data.startswith(b'tmd0'):
+                raise ValueError("Invalid TMD2 magic.")
+        else:
+            tmd_data = f.read()
+            if not tmd_data.startswith(b'tmd0'):
+                raise ValueError("Invalid TMD2 magic.")
+        
+        br = BinaryReader(tmd_data, Endian.LITTLE)
+        tmd2 = br.read_struct(TMD2)
         return tmd2
 
 
 if __name__ == "__main__":
-    tmd2 = read_tmd2(r"G:\Dev\io_tmd_tmo\pl000_wep00_00_00_decompressed.tmd2")
-    print(tmd2.__dict__)
+    tmd2 = readTMD2(r"G:\Dev\io_tmd_tmo\pl000_wep00_00_00_decompressed.tmd2")
+    print(tmd2.__dict__)'''

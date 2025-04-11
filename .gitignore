@@ -1,0 +1,7 @@
+__pycache__/lds.cpython-311.pyc
+__pycache__/pzze.cpython-311.pyc
+__pycache__/tmd2.cpython-311.pyc
+__pycache__/read_tmd2.cpython-311.pyc
+*.pyc
+*.tmd2
+*.lds

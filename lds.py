@@ -1,14 +1,16 @@
-from utils.PyBinaryReader.binary_reader import *
+from .utils.PyBinaryReader.binary_reader import *
 
 
 class LDS(BrStruct):
     
     def __init__(self):
+        self.name = ""
         self.textureCount = 0
         self.textures = []
         self.unk = 0
     
-    def __br_read__(self, br: BinaryReader, *args) -> None:
+    def __br_read__(self, br: BinaryReader, file_name = "") -> None:
+        self.name = file_name
         self.unk = br.read_uint32()
         self.textureCount = br.read_uint32()
         self.fileSize = br.read_uint32()

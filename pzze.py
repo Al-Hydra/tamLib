@@ -1,6 +1,6 @@
 import os
 import zlib
-from utils.PyBinaryReader.binary_reader import *
+from .utils.PyBinaryReader.binary_reader import *
 
 
 class PZZEFile(BrStruct):
@@ -67,7 +67,7 @@ if __name__ == "__main__":
     outputDir = os.path.join(fileDir, "output")
     os.makedirs(outputDir, exist_ok=True)
     
-    path =r"G:\Dev\BlenderTMD2\tamLib\ad000_cos00_01.lds"
+    path =r"G:\Dev\io_tmd_tmo\pl002_hair00_00.tmd2"
     filename = os.path.basename(path)
 
     pzze = readPZZE(path)
