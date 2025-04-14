@@ -63,36 +63,4 @@ def readPZZE(path):
 
 
 if __name__ == "__main__":
-    fileDir = os.path.dirname(os.path.abspath(__file__))
-    outputDir = os.path.join(fileDir, "output")
-    os.makedirs(outputDir, exist_ok=True)
-    
-    path =r"G:\Dev\io_tmd_tmo\pl002_hair00_00.tmd2"
-    filename = os.path.basename(path)
-
-    pzze = readPZZE(path)
-    output = pzze.decompress()
-    if output:
-        baseName = os.path.splitext(filename)[0]
-        fileOutputDir = os.path.join(outputDir, baseName)
-        os.makedirs(fileOutputDir, exist_ok=True)
-        
-        #save the decompressed file
-        outputPath = os.path.join(fileDir, baseName + "_decompressed" + os.path.splitext(filename)[1])
-        with open(outputPath, "wb") as f:
-            f.write(output)
-        
-        '''
-        #compress test
-        new_pzze = PZZEFile()
-        new_pzze.decompressedData = output
-        new_pzze.fileFormat = "TEST"
-        
-        new_br = BinaryReader()
-        new_br.write_struct(new_pzze, pzze.fileFormat)
-        
-        #new file name
-        new_file_name = os.path.splitext(filename)[0] + "_compressed" + os.path.splitext(filename)[1]
-        new_file_path = os.path.join(fileDir, new_file_name)
-        with open(new_file_path, "wb") as f:
-            f.write(new_br.buffer())'''
+    pass

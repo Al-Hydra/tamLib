@@ -2,12 +2,14 @@ from .utils.PyBinaryReader.binary_reader import *
 from .pzze import readPZZE
 import numpy as np
 
-
 class TMD2(BrStruct):
 
     def __init__(self) -> None:
         self.magic = 'tmd0'
         self.name = ""
+        self.version = 521
+        self.modelFlags = 0
+        
         self.bones = []
         self.models = []
         self.indexTables = []
@@ -208,7 +210,24 @@ class TMD2(BrStruct):
                 
         
     def __br_write__(self, br: 'BinaryReader', *args) -> None:
-        pass
+        #magic
+        br.write_str_fixed("tmd0",4)
+        br.write_int16(0)
+        br.write_uint16(self.modelFlags)
+        br.write_uint16(200) #this has something to do with hair meshes
+        br.write_uint16(self.version)
+        br.write_uint16(0x28)
+        br.write_int16(-1)
+        br.write_float(self.boundingBox)
+        
+        #we have to write the rest of the file before writing the rest of the header
+        mat_buffer = BinaryReader()
+        param_buffer = BinaryReader()
+        mattex_buffer = BinaryReader()
+        tex_buffer = BinaryReader()
+        
+        mat_buffer.write_struct(TMD2Material,None, param_buffer, mattex_buffer)
+        
 
 
 class TMD2Model(BrStruct):
@@ -227,7 +246,7 @@ class TMD2Model(BrStruct):
         self.unk1 =  br.read_uint32()
         self.unk2 =  br.read_uint32()
         
-        if namesOffset and self.nameOffset != -1:
+        if namesOffset > 0 and self.nameOffset != -1:
             self.name = br.read_str_at_offset(namesOffset + self.nameOffset)
         else:
             self.name = f"model_{str(self.unk1)}"
@@ -318,6 +337,7 @@ class TMD2MatTexture(BrStruct):
     def __init__(self) -> None:
         self.textureHash = 0
         self.textureIndex = 0
+        self.texture = None
         self.slot = 0
 
     def __br_read__(self, br: 'BinaryReader', textures) -> None:
@@ -350,9 +370,18 @@ class TMD2Material(BrStruct):
         self.unk = br.read_int32()
         self.shaderParams = params[self.shaderParamsStartIndex: self.shaderParamsStartIndex + self.shaderParamsCount]
 
-    def __br_write__(self, br: 'BinaryReader', *args) -> None:
-        pass
-
+    def __br_write__(self, br: 'BinaryReader', matTextures, params) -> None:
+        br.write_uint32(self.hash)
+        br.write_str_fixed(self.shaderID,4)
+        br.write_uint16(len(matTextures))
+        br.write_uint16(len(self.textures))
+        #add textures from this material to the material textures list
+        matTextures.extend(self.textures)
+        
+        br.write_uint16(len(params))
+        br.write_uint16(len(self.shaderParams))
+        #add params from this material to the shader params list
+        matTextures.extend(self.self.shaderParams)
 
 class TMD2Vertex:
     def __init__(self) -> None:
@@ -388,7 +417,7 @@ class TMD2Bone(BrStruct):
         
         self.unk1 = br.read_uint16()
         self.nameOffset = br.read_uint16()
-        if namesOffset != -1 and self.nameOffset != -1:
+        if namesOffset > 0 and self.nameOffset != -1:
             self.name = br.read_str_at_offset(namesOffset + self.nameOffset, encoding='utf-8')
         else:
             self.name = str(self.hash)
@@ -405,30 +434,3 @@ class TMD2IndexTable(BrStruct):
         self.startIndex = br.read_uint32()
         
         self.indices = tableIndices[self.startIndex: self.startIndex + self.indicesCount]
-
-'''
-def readTMD2(file: str) -> TMD2:
-    with open(file, 'rb') as f:
-        #read magic
-        magic = f.read(4).decode('utf-8')
-        if magic == "PZZE":
-            pzze = readPZZE(file)
-            
-            tmd_data = pzze.decompress
-            if tmd_data is None:
-                raise ValueError("Failed to decompress TMD2 data.")
-            if not tmd_data.startswith(b'tmd0'):
-                raise ValueError("Invalid TMD2 magic.")
-        else:
-            tmd_data = f.read()
-            if not tmd_data.startswith(b'tmd0'):
-                raise ValueError("Invalid TMD2 magic.")
-        
-        br = BinaryReader(tmd_data, Endian.LITTLE)
-        tmd2 = br.read_struct(TMD2)
-        return tmd2
-
-
-if __name__ == "__main__":
-    tmd2 = readTMD2(r"G:\Dev\io_tmd_tmo\pl000_wep00_00_00_decompressed.tmd2")
-    print(tmd2.__dict__)'''
