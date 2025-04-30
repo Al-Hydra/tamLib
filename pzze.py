@@ -24,8 +24,8 @@ class PZZEFile(BrStruct):
         self.compressedData = br.buffer()[self.dataOffset:]
     
     def __br_write__(self, br: BinaryReader, fileFormat = "tmd2") -> None:
-        br.write_str(self.magic)
-        br.write_str(fileFormat)
+        br.write_str_fixed(self.magic, 4)
+        br.write_str_fixed(fileFormat, 4)
         br.write_uint64(len(self.decompressedData))
         br.write_uint64(24)
         br.write_bytes(self.compress())

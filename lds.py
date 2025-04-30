@@ -28,16 +28,14 @@ class LDS(BrStruct):
             if i != self.textureCount - 1:
                 textureSize = offsets[i + 1] - offsets[i]
                 self.textures.append(br.read_bytes(textureSize))
-                print(f"Texture {i} size: {textureSize}")
             else:
                 textureSize = br.size() - offsets[i] - pos
-                print(f"Texture {i} size: {textureSize}")
                 self.textures.append(br.read_bytes(textureSize))
         
         
     def __br_write__(self, br: BinaryReader, *args) -> None:
-        
-        br.write_uint32(self.unk)
+        flags = ((len(self.textures) - 1) * 4) + 16
+        br.write_uint32(flags)
         br.write_uint32(len(self.textures))
         
         sizePos = br.pos()
@@ -45,9 +43,15 @@ class LDS(BrStruct):
         
         texturesBuffer = BinaryReader()
         for i in range(len(self.textures)):
-            texturesBuffer.write_bytes(self.textures[i])
             br.write_uint32(texturesBuffer.size())
-        br.write_bytes(texturesBuffer.buffer())
+            texturesBuffer.write_bytes(self.textures[i])
+        br.extend(texturesBuffer.buffer())
+        br.seek(texturesBuffer.size())
+        
+        del texturesBuffer
+        
+        br.seek(sizePos)
+        br.write_uint32(br.size())
 
 
 if __name__ == "__main__":
