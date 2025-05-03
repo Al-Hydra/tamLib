@@ -4,7 +4,7 @@ import numpy as np
 from itertools import chain
 import struct
 
-class TMD2(BrStruct):
+class TMD(BrStruct):
 
     def __init__(self) -> None:
         self.magic = 'tmd0'
@@ -19,7 +19,7 @@ class TMD2(BrStruct):
         
         self.unkBoneInfo = []
         
-    def __br_read__(self, br: 'BinaryReader', file_name = "") -> None:
+    def __br_read__(self, br: 'BinaryReader', file_name = "", texture_names = {}) -> None:
 
         self.magic = br.read_str(4)
         if self.magic != 'tmd0':
@@ -30,52 +30,59 @@ class TMD2(BrStruct):
         
         unk0 = br.read_uint16()
         self.modelFlags = br.read_uint16()
-        unk1 = br.read_uint32()
-        unk2 = br.read_uint16()
+        self.animFlag = br.read_uint16()
+        self.version = br.read_uint16()
+        headerSize = br.read_uint16()
         self.frameCount = br.read_int16()
         self.boundingBox = br.read_float32(6)
+        
+        
         self.modelsOffset = br.read_uint64()
-        unk3 = br.read_uint32()
-        self.subMeshEntriesOffset = br.read_uint32()
-        self.materialsOffset = br.read_uint32()
-        self.shaderParamsOffset = br.read_uint32()
+        br.seek(16, 1)
+        
+        self.subMeshEntriesOffset = br.read_uint64()
+        self.materialsOffset = br.read_uint64()
+        self.shaderParamsOffset = br.read_uint64()
         self.namesOffset = br.read_uint64()
-        self.subMeshOffset = br.read_uint32()
-        self.trianglesOffset = br.read_uint32()
+        self.transformationFramesOffset = br.read_uint64()
+        self.subMeshOffset = br.read_uint64()
+        self.trianglesOffset = br.read_uint64()
         self.texturesOffset = br.read_uint64()
-        self.materialTexturesOffset = br.read_uint32()
-        self.verticesOffset = br.read_uint32()
+        unk1 = br.read_uint64()
+        self.materialTexturesOffset = br.read_uint64()
+        self.verticesOffset = br.read_uint64()
         self.unkOffset = br.read_uint64()
-        self.modelCount = br.read_uint32()
-        unk4 = br.read_uint64()
+        unk2 = br.read_uint64()
+        self.modelCount = br.read_uint64()
+        unk3 = br.read_uint32()
         self.subMeshEntriesCount = br.read_uint32()
         self.materialCount = br.read_uint32()
         self.shaderParamsCount = br.read_uint32()
-        unk5 = br.read_uint64()
+        self.namesSize = br.read_uint32()
+        self.TransformationFramesCount = br.read_uint32()
         self.subMeshCount = br.read_uint32()
         self.trianglesCount = br.read_uint32()
         self.textureCount = br.read_uint64()
         self.materialTextureCount = br.read_uint32()
         self.vertexCount = br.read_uint32()
         if self.modelFlags & 0x2000:
-            self.indexTablesOffset = br.read_uint32()
-            self.tableIndicesOffset = br.read_uint32()
-            self.boneMatrixOffset = br.read_uint32()
-            self.boneHierarchyOffset = br.read_uint32()
+            self.indexTablesOffset = br.read_uint64()
+            self.tableIndicesOffset = br.read_uint64()
+            self.boneMatrixOffset = br.read_uint64()
+            self.boneHierarchyOffset = br.read_uint64()
             self.indexTablesCount = br.read_uint32()
             self.tableIndicesCount = br.read_uint32()
             self.boneCount = br.read_uint32()
             self.totalBoneCount = br.read_uint32()
-            self.extraBoneInfoOffset = br.read_uint32()
-            self.boneHierarchyOffset2 = br.read_uint32()
+
         
         #Textures Info
         br.seek(self.texturesOffset, Whence.BEGIN)
-        self.textures = br.read_struct(TMD2Texture, self.textureCount)
+        self.textures = br.read_struct(TMDTexture, self.textureCount, texture_names)
         
         #Material Textures Info
         br.seek(self.materialTexturesOffset, Whence.BEGIN)
-        self.materialTextures = br.read_struct(TMD2MatTexture, self.materialTextureCount, self.textures)
+        self.materialTextures = br.read_struct(TMDMatTexture, self.materialTextureCount, self.textures)
         
         #Shader Params Info
         br.seek(self.shaderParamsOffset, Whence.BEGIN)
@@ -83,7 +90,7 @@ class TMD2(BrStruct):
         
         #Material Info
         br.seek(self.materialsOffset, Whence.BEGIN)
-        self.materials = br.read_struct(TMD2Material, self.materialCount, self.materialTextures, self.shaderParams)
+        self.materials = br.read_struct(TMDMaterial, self.materialCount, self.materialTextures, self.shaderParams)
 
         
         def unpack_normals(v):
@@ -103,6 +110,9 @@ class TMD2(BrStruct):
             'color2':      lambda v: v.astype(np.float32) / 255.0,
             'boneWeights': lambda v: v.astype(np.float32) / 255.0,
             'boneWeights2':lambda v: v.astype(np.float32) / 255.0,
+            'uv':lambda v: v.astype(np.float32) / 1024.0,
+            'uv2':lambda v: v.astype(np.float32) / 1024.0,
+            'uv3':lambda v: v.astype(np.float32) / 1024.0,
         }
 
         # Determine vertex attributes based on flags
@@ -135,11 +145,11 @@ class TMD2(BrStruct):
             vertex_attributes.append(('color2', 'u1', 4))
 
         if self.modelFlags & 0x10:
-            vertex_attributes.append(('uv', 'f4', 2))
+            vertex_attributes.append(('uv', 'u2', 2))
         if self.modelFlags & 0x20:
-            vertex_attributes.append(('uv2', 'f4', 2))
+            vertex_attributes.append(('uv2', 'u2', 2))
         if self.modelFlags & 0x40:
-            vertex_attributes.append(('uv3', 'f4', 2))
+            vertex_attributes.append(('uv3', 'u2', 2))
 
         # Read vertex buffer
         br.seek(self.verticesOffset, Whence.BEGIN)
@@ -156,7 +166,7 @@ class TMD2(BrStruct):
             converted_attributes[name] = column
 
         # Create and fill vertex objects
-        self.vertices = [TMD2Vertex() for _ in range(self.vertexCount)]
+        self.vertices = [TMDVertex() for _ in range(self.vertexCount)]
         for i in range(self.vertexCount):
             vertex = self.vertices[i]
             for name in converted_attributes:
@@ -175,56 +185,37 @@ class TMD2(BrStruct):
         if self.modelFlags & 0x2000:
             #read all indices for the index table
             br.seek(self.tableIndicesOffset, Whence.BEGIN)
-            self.allIndices = [br.read_uint32() for i in range(self.tableIndicesCount)]
+            self.allIndices = [br.read_uint8() for i in range(self.tableIndicesCount)]
             
             #pass the indices list to the index table class and read the individual index tables
             br.seek(self.indexTablesOffset, Whence.BEGIN)
-            self.indexTables = br.read_struct(TMD2IndexTable, self.indexTablesCount, self.allIndices)
+            self.indexTables = br.read_struct(TMDIndexTable, self.indexTablesCount, self.allIndices)
             
             if not self.indexTables:
-                genericIndexTable = TMD2IndexTable()
+                genericIndexTable = TMDIndexTable()
                 genericIndexTable.indices = [i for i in range(self.boneCount)]
                 self.indexTables = [genericIndexTable]
             
             # read skeleton info
             br.seek(self.boneHierarchyOffset, Whence.BEGIN)
-            self.bones = br.read_struct(TMD2Bone, self.boneCount, self.namesOffset)
+            self.bones = br.read_struct(TMDBone, self.boneCount, self.namesOffset)
             
             #read the matrix info
             br.seek(self.boneMatrixOffset, Whence.BEGIN)
             for i in range(self.boneCount):
                 self.bones[i].matrix = [br.read_float32(4) for _ in range(4)]
             
-            
-            unkBoneInfoCount = 0
-            br.seek(self.extraBoneInfoOffset, Whence.BEGIN)
-            for i in range(self.boneCount):
-                bone = self.bones[i]
-                bone.extra = br.read_int16()
-                if bone.extra != -1:
-                    unkBoneInfoCount += 1
-            
-            br.align_pos(16)
-            self.unkBoneInfo = [br.read_float32(3) for i in range(unkBoneInfoCount)]
-            for bone in self.bones:
-                if bone.extra > -1:
-                    bone.offset = self.unkBoneInfo[bone.extra]
-            
             #print(self.bones[0].__dict__)
         
         br.seek(self.subMeshEntriesOffset, Whence.BEGIN)
-        self.submeshEntries = br.read_struct(TMD2SubmeshEntry,self.subMeshEntriesCount)
+        self.submeshEntries = br.read_struct(TMDSubmeshEntry,self.subMeshEntriesCount)
         
         br.seek(self.subMeshOffset, Whence.BEGIN)
-        self.submeshes = br.read_struct(TMD2Submesh,self.subMeshCount, self.triangles, self.vertices)
+        self.submeshes = br.read_struct(TMDSubmesh,self.subMeshCount, self.triangles, self.vertices)
         
         #read model info
         br.seek(self.modelsOffset, Whence.BEGIN)
-        self.models = br.read_struct(TMD2Model, self.modelCount, self.indexTables, self.submeshEntries, self.submeshes, self.materials, self.namesOffset)
-        
-        #read the unknown section
-        br.seek(self.unkOffset, Whence.BEGIN)
-        self.unkSections = br.read_struct(TMD2Unk, self.modelCount + 1)
+        self.models = br.read_struct(TMDModel, self.modelCount, self.indexTables, self.submeshEntries, self.submeshes, self.materials, self.namesOffset)
                 
         
     def __br_write__(self, br: 'BinaryReader', *args) -> None:
@@ -603,7 +594,7 @@ class TMD2(BrStruct):
             
         
 
-class TMD2Unk(BrStruct):
+class TMDUnk(BrStruct):
     def __init__(self) -> None:
         self.values = [0] * 24
     
@@ -614,7 +605,7 @@ class TMD2Unk(BrStruct):
         br.write_float32(self.values)
 
 
-class TMD2Model(BrStruct):
+class TMDModel(BrStruct):
     def __init__(self) -> None:
         self.boundingBox = [0,0,0,0,0,0]
         self.meshes = []
@@ -629,10 +620,10 @@ class TMD2Model(BrStruct):
         self.entriesCount = br.read_uint16()
         self.hashFlag =  br.read_uint8()
         self.nameFlag =  br.read_uint8()
-        self.entriesStart = br.read_uint32()
-        self.nameOffset = br.read_int32()
         self.hash =  br.read_uint32()
-        self.unk0 =  br.read_uint32()
+        self.entriesStart = br.read_uint64()
+        self.nameOffset = br.read_int32()
+        self.vector = br.read_float32(3)
         
         if namesOffset > 0 and self.nameOffset != -1:
             self.name = br.read_str_at_offset(namesOffset + self.nameOffset)
@@ -640,7 +631,7 @@ class TMD2Model(BrStruct):
             self.name = f"{str(self.hash)}"
         
         materialIdx = -1
-        indexTable = indexTables[0] if indexTables else TMD2IndexTable()
+        indexTable = indexTables[0] if indexTables else TMDIndexTable()
         
         for entry in entries[self.entriesStart: self.entriesStart + self.entriesCount]:
             if entry.type == 96:
@@ -667,7 +658,7 @@ class TMD2Model(BrStruct):
         localEntries = []
         
         for mesh in self.meshes:
-            mesh: TMD2Submesh
+            mesh: TMDSubmesh
             materialIndex = materials.index(mesh.material)
             print(materialIndex)
             if materialIdx != materialIndex:
@@ -675,18 +666,18 @@ class TMD2Model(BrStruct):
                 materialIdx = materialIndex
                 
                 #create a material entry
-                matEntry = TMD2SubmeshEntry()
+                matEntry = TMDSubmeshEntry()
                 matEntry.type = 96
                 matEntry.index = materialIdx
                 localEntries.append(matEntry)
             
             if mesh.indexTable and boneCount >= 255:
                 
-                idxTbl = TMD2IndexTable()
+                idxTbl = TMDIndexTable()
                 idxTbl.indices = mesh.indexTable
                 
                 #create index table entry
-                idxTblEntry = TMD2SubmeshEntry()
+                idxTblEntry = TMDSubmeshEntry()
                 idxTblEntry.type = 64
                 idxTblEntry.index = len(indexTables)
                 
@@ -696,7 +687,7 @@ class TMD2Model(BrStruct):
                 
             #create mesh and its entry
             submeshes.append(mesh)
-            meshEntry = TMD2SubmeshEntry()
+            meshEntry = TMDSubmeshEntry()
            # meshEntry.index = submeshes.index(mesh)
             meshEntry.index = submeshIdx
             submeshIdx += 1
@@ -705,7 +696,7 @@ class TMD2Model(BrStruct):
             localEntries.append(meshEntry)
         
         #when done create end Entry
-        endEntry = TMD2SubmeshEntry()
+        endEntry = TMDSubmeshEntry()
         endEntry.index = 0
         endEntry.type = 16
         localEntries.append(endEntry)
@@ -736,7 +727,7 @@ class TMD2Model(BrStruct):
         
         
 
-class TMD2Submesh(BrStruct):
+class TMDSubmesh(BrStruct):
     def __init__(self):
         self.material = None
         self.indexTable = []
@@ -749,7 +740,9 @@ class TMD2Submesh(BrStruct):
     
     def __br_read__(self, br, triangles, vertices):
         self.trianglesCount = br.read_uint32()
+        self.trianglesOffset = br.read_uint32()
         self.trianglesStart = br.read_uint32()
+        unk = br.read_uint32()
         
         
         vertex_map = {}  # Maps global index -> local index
@@ -785,7 +778,7 @@ class TMD2Submesh(BrStruct):
         
         
 
-class TMD2SubmeshEntry(BrStruct):
+class TMDSubmeshEntry(BrStruct):
     def __init__(self):
         self.type = None
         self.index = -1
@@ -799,18 +792,19 @@ class TMD2SubmeshEntry(BrStruct):
         br.write_int8(self.type)
 
 
-class TMD2Texture(BrStruct):
+class TMDTexture(BrStruct):
     def __init__(self) -> None:
-        self.hash = 0
         self.name = ''
+        self.hash = 0
         self.index = 0
         self.width = 0
         self.height = 0
         self.format = 21074
         self.data = b''
     
-    def __br_read__(self, br: 'BinaryReader', *args) -> None:
+    def __br_read__(self, br: 'BinaryReader', texture_names = {}) -> None:
         self.hash = br.read_uint32()
+        self.name = texture_names.get(self.hash, str(self.hash))
         self.index = br.read_uint16()
         self.width = br.read_uint16()
         self.height = br.read_uint16()
@@ -826,7 +820,7 @@ class TMD2Texture(BrStruct):
         
 
 
-class TMD2MatTexture(BrStruct):
+class TMDMatTexture(BrStruct):
     def __init__(self) -> None:
         self.textureHash = 0
         self.textureIndex = 0
@@ -851,7 +845,7 @@ class TMD2MatTexture(BrStruct):
         br.write_int8(0)
         br.write_int8(self.slot)
 
-class TMD2Material(BrStruct):
+class TMDMaterial(BrStruct):
     def __init__(self) -> None:
         self.hash = 0
         self.name = ''
@@ -887,7 +881,7 @@ class TMD2Material(BrStruct):
         params.extend(self.shaderParams)
         br.write_int32(self.unk)
 
-class TMD2Vertex:
+class TMDVertex:
     def __init__(self) -> None:
         self.position = [0.0, 0.0, 0.0]
         self.normal = [0.0, 0.0, 0.0]
@@ -906,7 +900,7 @@ class TMD2Vertex:
         self.boneWeights2 = [0, 0, 0, 0]
 
 
-class TMD2Bone(BrStruct):
+class TMDBone(BrStruct):
     def __init__(self) -> None:
         self.name = ''
         self.parentIndex = 0
@@ -922,10 +916,7 @@ class TMD2Bone(BrStruct):
         
         self.unk1 = br.read_uint16()
         self.nameOffset = br.read_uint16()
-        if namesOffset > 0 and self.nameOffset != -1:
-            self.name = br.read_str_at_offset(namesOffset + self.nameOffset, encoding='utf-8')
-        else:
-            self.name = str(self.hash)
+        self.name = str(self.hash)
     
     
     def __br_write__(self, br, namesBuffer: BinaryReader, version):
@@ -941,21 +932,21 @@ class TMD2Bone(BrStruct):
             br.write_int16(-1)
 
 
-class TMD2IndexTable(BrStruct):
+class TMDIndexTable(BrStruct):
     def __init__(self):
         self.indices = []
         self.indicesCount = 0
     
     def __br_read__(self, br, tableIndices):
         
-        self.indicesCount = br.read_uint32()
-        self.startIndex = br.read_uint32()
+        self.indicesCount = br.read_uint64()
+        self.startIndex = br.read_uint64()
         
         self.indices = tableIndices[self.startIndex: self.startIndex + self.indicesCount]
 
     def __br_write__(self, br, indicesList):
-        br.write_uint32(len(self.indices))
-        br.write_uint32(len(indicesList))
+        br.write_uint64(len(self.indices))
+        br.write_uint64(len(indicesList))
         indicesList.extend(self.indices)
 
 
