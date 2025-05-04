@@ -9,7 +9,7 @@ class TMD(BrStruct):
     def __init__(self) -> None:
         self.magic = 'tmd0'
         self.name = ""
-        self.version = 0x209
+        self.version = 0x201
         self.modelFlags = 0
         
         self.bones = []
@@ -223,7 +223,7 @@ class TMD(BrStruct):
         br.write_str_fixed("tmd0",4)
         br.write_int16(0)
         br.write_uint16(self.modelFlags)
-        br.write_uint16(200) #this has something to do with hair meshes
+        br.write_uint16(0) #this has something to do with hair meshes
         br.write_uint16(self.version)
         br.write_uint16(0x28)
         br.write_int16(-1)
@@ -231,40 +231,48 @@ class TMD(BrStruct):
         
         modelOffsetPos = br.pos()
         br.write_uint64(0)
-        br.write_uint32(0)
+        
+        br.pad(16)
         
         entriesOffsetPos = br.pos()
-        br.write_uint32(0)
+        br.write_uint64(0)
         
         materialsOffsetPos = br.pos()
-        br.write_uint32(0)
+        br.write_uint64(0)
         
         paramsOffsetPos = br.pos()
-        br.write_uint32(0)
+        br.write_uint64(0)
         
         namesOffsetPos = br.pos()
         br.write_uint64(0)
         
+        transformationFramesOffsetPos = br.pos()
+        br.write_uint64(0)
+        
         submeshOffsetPos = br.pos()
-        br.write_uint32(0)
+        br.write_uint64(0)
         
         trianglesOffsetPos = br.pos()
-        br.write_uint32(0)
+        br.write_uint64(0)
         
         texturesOffsetPos = br.pos()
         br.write_uint64(0)
         
+        br.write_uint64(0) #unk offset
+        
         matTexOffsetPos = br.pos()
-        br.write_uint32(0)
+        br.write_uint64(0)
         
         verticesOffsetPos = br.pos()
-        br.write_uint32(0)
+        br.write_uint64(0)
         
         unkSecOffsetPos = br.pos()
         br.write_uint64(0)
         
-        br.write_uint32(len(self.models))
-        br.write_uint64(0)
+        br.write_uint64(0) #unk offset
+        
+        br.write_uint64(len(self.models))
+        br.write_uint32(0)
         
         entriesCountPos = br.pos()
         br.write_uint32(0)
@@ -275,7 +283,10 @@ class TMD(BrStruct):
         paramCountPos = br.pos()
         br.write_uint32(0)
         
-        br.write_uint64(0) #I don't know what this value does but it can be 0
+        namesBufferSizePos = br.pos()
+        br.write_uint32(0) #Names Buffer Size
+        
+        br.write_uint32(0) # TransformationFramesCount
         
         submeshCountPos = br.pos()
         br.write_uint32(0)
@@ -294,16 +305,16 @@ class TMD(BrStruct):
         
         if len(self.bones):
             idxTblOffsetPos = br.pos()
-            br.write_uint32(0)
+            br.write_uint64(0)
             
             indicesOffsetPos = br.pos()
-            br.write_uint32(0)
+            br.write_uint64(0)
             
             matricesOffsetPos = br.pos()
-            br.write_uint32(0)
+            br.write_uint64(0)
             
             hierarchyOffsetPos = br.pos()
-            br.write_uint32(0)
+            br.write_uint64(0)
             
             idxTblCountPos = br.pos()
             br.write_uint32(0)
@@ -316,12 +327,6 @@ class TMD(BrStruct):
             
             boneCount2Pos = br.pos()
             br.write_uint32(0)
-            
-            extraInfoOffsetPos = br.pos()
-            br.write_uint32(0)
-            
-            hierarchyOffset2Pos = br.pos()
-            br.write_uint32(0)
         
         br.align(16)
             
@@ -332,10 +337,11 @@ class TMD(BrStruct):
         texBuffer = BinaryReader()
         
         matTexList = []
+        LastTextures = []
         paramsList = []
         
         # write materials
-        matBuffer.write_struct(self.materials, matTexList, paramsList)
+        matBuffer.write_struct(self.materials, matTexList, LastTextures, paramsList)
         print("Materials Written")
         
         #write params
@@ -372,9 +378,10 @@ class TMD(BrStruct):
         #write the submeshes
         trianglesList = []
         verticesList = []
+        triangleOffsets = []
         
         submeshBuffer = BinaryReader()
-        submeshBuffer.write_struct(submeshes, trianglesList, verticesList)
+        submeshBuffer.write_struct(submeshes, trianglesList, verticesList, triangleOffsets)
         print("submeshes Written")
         
         def encode_weights_8(total_weights):
@@ -432,16 +439,16 @@ class TMD(BrStruct):
             field_generators.append(lambda v: [int(c * 255) for c in v.color2])
 
         if flags & 0x10:
-            vertex_format += '2f'
-            field_generators.append(lambda v: v.uv)
+            vertex_format += '2H'
+            field_generators.append(lambda v: [int(c * 1024) for c in v.uv])
 
         if flags & 0x20:
-            vertex_format += '2f'
-            field_generators.append(lambda v: v.uv2)
+            vertex_format += '2H'
+            field_generators.append(lambda v: [int(c * 1024) for c in v.uv2])
 
         if flags & 0x40:
-            vertex_format += '2f'
-            field_generators.append(lambda v: v.uv3)
+            vertex_format += '2H'
+            field_generators.append(lambda v: [int(c * 1024) for c in v.uv3])
 
 
         packed_vertices = bytearray()
@@ -497,14 +504,10 @@ class TMD(BrStruct):
         
         indicesList = []
         indexTblBuffer.write_struct(indexTablesList, indicesList)
-        indicesBuffer.write_uint32(indicesList)
+        indicesBuffer.write_uint8(indicesList)
         
         print("Indices Written")
         
-        unkSecBuffer = BinaryReader()
-        unkSecBuffer.write_struct(self.unkSections)
-        
-        print("Unknown section written")
         
         # Write all buffers and record their offsets
         def write_and_get_offset(buffer: BinaryReader, alignment=16):
@@ -518,6 +521,12 @@ class TMD(BrStruct):
         entriesOffset = write_and_get_offset(entryBuffer)
         materialsOffset = write_and_get_offset(matBuffer)
         paramsOffset = write_and_get_offset(paramBuffer)
+        namesOffset = write_and_get_offset(namesBuffer)
+        transformationFramesOffset = 0
+        for offset in triangleOffsets:
+            submeshBuffer.seek(offset, Whence.BEGIN)
+            submeshBuffer.write_uint32(br.size() + submeshBuffer.size())
+        
         submeshOffset = write_and_get_offset(submeshBuffer)
         trianglesOffset = write_and_get_offset(triBuffer)
         texturesOffset = write_and_get_offset(texBuffer)
@@ -535,12 +544,10 @@ class TMD(BrStruct):
                 indicesList = []
                 indexTablesList = []
             boneMatrixOffset = write_and_get_offset(boneMatrixBuffer)
-            extraBoneInfoOffset = write_and_get_offset(boneExtraInfoBuffer)
-            unkBoneOffset = write_and_get_offset(unkBoneBuffer)
             boneHierarchyOffset = write_and_get_offset(boneHierarchyBuffer)
         
-        unkSecOffset = write_and_get_offset(unkSecBuffer)
-        namesOffset = write_and_get_offset(namesBuffer)
+        
+        
 
         # Patch header
         def patch_u32(pos, val):
@@ -556,20 +563,22 @@ class TMD(BrStruct):
             br.seek(here)
 
         patch_u64(modelOffsetPos, modelOffset)
-        patch_u32(entriesOffsetPos, entriesOffset)
-        patch_u32(materialsOffsetPos, materialsOffset)
-        patch_u32(paramsOffsetPos, paramsOffset)
+        patch_u64(entriesOffsetPos, entriesOffset)
+        patch_u64(materialsOffsetPos, materialsOffset)
+        patch_u64(paramsOffsetPos, paramsOffset)
         patch_u64(namesOffsetPos, namesOffset)
-        patch_u32(submeshOffsetPos, submeshOffset)
-        patch_u32(trianglesOffsetPos, trianglesOffset)
+        patch_u64(transformationFramesOffsetPos, transformationFramesOffset)
+        patch_u64(submeshOffsetPos, submeshOffset)
+        patch_u64(trianglesOffsetPos, trianglesOffset)
         patch_u64(texturesOffsetPos, texturesOffset)
-        patch_u32(matTexOffsetPos, matTexOffset)
-        patch_u32(verticesOffsetPos, verticesOffset)
-        patch_u64(unkSecOffsetPos, unkSecOffset)
-
+        patch_u64(matTexOffsetPos, matTexOffset)
+        patch_u64(verticesOffsetPos, verticesOffset)
+        patch_u64(unkSecOffsetPos, 0)
+        
         patch_u32(entriesCountPos, len(submeshEntries))
         patch_u32(materialCountPos, len(self.materials))
         patch_u32(paramCountPos, len(paramsList))
+        patch_u32(namesBufferSizePos, namesBuffer.size())
         patch_u32(submeshCountPos, len(self.submeshes))
         patch_u32(trianglesCountPos, len(trianglesList))
         patch_u64(textureCountPos, len(self.textures))
@@ -585,8 +594,6 @@ class TMD(BrStruct):
             patch_u32(indicesCountPos, len(indicesList))
             patch_u32(boneCountPos, len(self.bones))
             patch_u32(boneCount2Pos, len(self.bones))
-            patch_u32(extraInfoOffsetPos, extraBoneInfoOffset)
-            patch_u32(hierarchyOffset2Pos, unkBoneOffset)
     
     
         print("done")
@@ -623,7 +630,9 @@ class TMDModel(BrStruct):
         self.hash =  br.read_uint32()
         self.entriesStart = br.read_uint64()
         self.nameOffset = br.read_int32()
-        self.vector = br.read_float32(3)
+        self.unk1 = br.read_int32()
+        self.unk2 = br.read_int32()
+        self.unk3 = br.read_int32()
         
         if namesOffset > 0 and self.nameOffset != -1:
             self.name = br.read_str_at_offset(namesOffset + self.nameOffset)
@@ -706,10 +715,9 @@ class TMDModel(BrStruct):
         br.write_uint16(len(localEntries))
         br.write_uint8(self.hashFlag)
         br.write_uint8(self.nameFlag)
-        br.write_uint32(len(entries))
+        br.write_uint32(self.hash)
+        br.write_uint64(len(entries))
         entries.extend(localEntries)
-        
-
         try:
             # Try interpreting name as an integer
             if self.name.isdigit() and int(self.name) == self.hash:
@@ -722,8 +730,9 @@ class TMDModel(BrStruct):
             br.write_int32(namesBuffer.size())
             namesBuffer.write_str(self.name)
         
-        br.write_uint32(self.hash)
-        br.write_uint32(0)
+        br.write_int32(self.unk1)
+        br.write_int32(self.unk2)
+        br.write_int32(self.unk3)
         
         
 
@@ -756,12 +765,13 @@ class TMDSubmesh(BrStruct):
                 local_tri.append(vertex_map[global_idx])
             self.triangles.append(local_tri)
     
-    def __br_write__(self, br, trianglesList, verticesList):
+    def __br_write__(self, br: 'BinaryReader', trianglesList, verticesList, triangleOffsets):
         br.write_uint32(len(self.triangles))  # Write triangle count
-
+        triangleOffsets.append(br.pos())  # Store the triangle offset
+        br.write_uint32(0)  # Placeholder for triangle offset
         # Store the starting triangle index
         t_startIndex = len(trianglesList)
-        br.write_uint32(t_startIndex)
+        br.write_uint64(t_startIndex)
 
         # Map from local vertex index (within this submesh) to global index (in verticesList)
         local_to_global = {}
@@ -867,13 +877,30 @@ class TMDMaterial(BrStruct):
         self.unk = br.read_int32()
         self.shaderParams = params[self.shaderParamsStartIndex: self.shaderParamsStartIndex + self.shaderParamsCount]
 
-    def __br_write__(self, br: 'BinaryReader', matTextures, params) -> None:
+    def __br_write__(self, br: 'BinaryReader', matTextures, LastTextures, params) -> None:
         br.write_uint32(self.hash)
         br.write_str_fixed(self.shaderID,4)
-        br.write_uint16(len(matTextures))
-        br.write_uint16(len(self.textures))
-        #add textures from this material to the material textures list
-        matTextures.extend(self.textures)
+        
+        reuse = False
+        #compare LastTextures with the current textures
+        if len(LastTextures) == len(self.textures):
+            for i in range(len(LastTextures)):
+                if LastTextures[i].textureHash != self.textures[i].textureHash:
+                    reuse = False
+                    break
+                reuse = True
+        
+        
+        if reuse:
+            br.write_uint16(len(matTextures) - len(self.textures))
+            br.write_uint16(len(self.textures))
+        else:
+            br.write_uint16(len(matTextures))
+            br.write_uint16(len(self.textures))
+            #add textures from this material to the texture list
+            matTextures.extend(self.textures)
+        LastTextures.clear()
+        LastTextures.extend(self.textures)
         
         br.write_uint16(len(params))
         br.write_uint16(len(self.shaderParams))
@@ -929,7 +956,7 @@ class TMDBone(BrStruct):
             br.write_uint16(namesBuffer.size())
             namesBuffer.write_str(self.name)
         else:
-            br.write_int16(-1)
+            br.write_int16(0)
 
 
 class TMDIndexTable(BrStruct):

@@ -30,8 +30,9 @@ class TMD2(BrStruct):
         
         unk0 = br.read_uint16()
         self.modelFlags = br.read_uint16()
-        unk1 = br.read_uint32()
-        unk2 = br.read_uint16()
+        self.animFlag = br.read_uint16()
+        self.version = br.read_uint16()
+        headerSize = br.read_uint16()
         self.frameCount = br.read_int16()
         self.boundingBox = br.read_float32(6)
         self.modelsOffset = br.read_uint64()
