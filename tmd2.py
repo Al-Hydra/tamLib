@@ -16,8 +16,9 @@ class TMD2(BrStruct):
         self.models = []
         self.indexTables = []
         self.textures = []
-        
+        self.BBoxCorners = []
         self.unkBoneInfo = []
+        self.keyframes = []
         
     def __br_read__(self, br: 'BinaryReader', file_name = "") -> None:
 
@@ -28,7 +29,8 @@ class TMD2(BrStruct):
         if file_name:
             self.name = file_name
         
-        unk0 = br.read_uint16()
+        self.flag1 = br.read_uint8()
+        self.flag2 = br.read_uint8()
         self.modelFlags = br.read_uint16()
         self.animFlag = br.read_uint16()
         self.version = br.read_uint16()
@@ -40,19 +42,21 @@ class TMD2(BrStruct):
         self.subMeshEntriesOffset = br.read_uint32()
         self.materialsOffset = br.read_uint32()
         self.shaderParamsOffset = br.read_uint32()
-        self.namesOffset = br.read_uint64()
+        self.namesOffset = br.read_uint32()
+        self.framesOffset = br.read_uint32()
         self.subMeshOffset = br.read_uint32()
         self.trianglesOffset = br.read_uint32()
         self.texturesOffset = br.read_uint64()
         self.materialTexturesOffset = br.read_uint32()
         self.verticesOffset = br.read_uint32()
-        self.unkOffset = br.read_uint64()
+        self.bboxOffset = br.read_uint64()
         self.modelCount = br.read_uint32()
         unk4 = br.read_uint64()
         self.subMeshEntriesCount = br.read_uint32()
         self.materialCount = br.read_uint32()
         self.shaderParamsCount = br.read_uint32()
-        unk5 = br.read_uint64()
+        self.afterImageValue = br.read_uint32()
+        self.keyframeCount = br.read_uint32()
         self.subMeshCount = br.read_uint32()
         self.trianglesCount = br.read_uint32()
         self.textureCount = br.read_uint64()
@@ -224,16 +228,17 @@ class TMD2(BrStruct):
         self.models = br.read_struct(TMD2Model, self.modelCount, self.indexTables, self.submeshEntries, self.submeshes, self.materials, self.namesOffset)
         
         #read the unknown section
-        br.seek(self.unkOffset, Whence.BEGIN)
-        self.unkSections = br.read_struct(TMD2Unk, self.modelCount + 1)
+        br.seek(self.bboxOffset, Whence.BEGIN)
+        self.BBoxCorners = br.read_struct(TMD2BoundingBox, self.modelCount + 1)
                 
         
     def __br_write__(self, br: 'BinaryReader', *args) -> None:
         #magic
         br.write_str_fixed("tmd0",4)
-        br.write_int16(0)
+        br.write_uint8(self.flag1)
+        br.write_uint8(self.flag2)
         br.write_uint16(self.modelFlags)
-        br.write_uint16(200) #this has something to do with hair meshes
+        br.write_uint16(self.animFlag) #this has something to do with hair meshes
         br.write_uint16(self.version)
         br.write_uint16(0x28)
         br.write_int16(-1)
@@ -270,7 +275,7 @@ class TMD2(BrStruct):
         verticesOffsetPos = br.pos()
         br.write_uint32(0)
         
-        unkSecOffsetPos = br.pos()
+        bboxCornersOffsetPos = br.pos()
         br.write_uint64(0)
         
         br.write_uint32(len(self.models))
@@ -285,7 +290,7 @@ class TMD2(BrStruct):
         paramCountPos = br.pos()
         br.write_uint32(0)
         
-        br.write_uint64(0) #I don't know what this value does but it can be 0
+        br.write_uint64(self.afterImageValue) #I don't know what this value does but it can be 0
         
         submeshCountPos = br.pos()
         br.write_uint32(0)
@@ -511,8 +516,9 @@ class TMD2(BrStruct):
         
         print("Indices Written")
         
-        unkSecBuffer = BinaryReader()
-        unkSecBuffer.write_struct(self.unkSections)
+        bboxCornersBuffer = BinaryReader()
+        
+        bboxCornersBuffer.write_struct(self.BBoxCorners)
         
         print("Unknown section written")
         
@@ -549,7 +555,7 @@ class TMD2(BrStruct):
             unkBoneOffset = write_and_get_offset(unkBoneBuffer)
             boneHierarchyOffset = write_and_get_offset(boneHierarchyBuffer)
         
-        unkSecOffset = write_and_get_offset(unkSecBuffer)
+        bboxCornersOffset = write_and_get_offset(bboxCornersBuffer)
         namesOffset = write_and_get_offset(namesBuffer)
 
         # Patch header
@@ -575,7 +581,7 @@ class TMD2(BrStruct):
         patch_u64(texturesOffsetPos, texturesOffset)
         patch_u32(matTexOffsetPos, matTexOffset)
         patch_u32(verticesOffsetPos, verticesOffset)
-        patch_u64(unkSecOffsetPos, unkSecOffset)
+        patch_u64(bboxCornersOffsetPos, bboxCornersOffset)
 
         patch_u32(entriesCountPos, len(submeshEntries))
         patch_u32(materialCountPos, len(self.materials))
@@ -604,15 +610,17 @@ class TMD2(BrStruct):
             
         
 
-class TMD2Unk(BrStruct):
+class TMD2BoundingBox(BrStruct):
     def __init__(self) -> None:
-        self.values = [0] * 24
+        self.corners = []
     
     def __br_read__(self, br: 'BinaryReader') -> None:
-        self.values = br.read_float32(24)
+        for i in range(8):
+            self.corners.append(br.read_float32(3))
     
     def __br_write__(self, br, *args):
-        br.write_float32(self.values)
+        for i in range(8):
+            br.write_float32(self.corners[i])
 
 
 class TMD2Model(BrStruct):
