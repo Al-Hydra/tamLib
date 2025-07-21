@@ -1,5 +1,5 @@
-from utils.PyBinaryReader.binary_reader import *
-
+from .utils.PyBinaryReader.binary_reader import *
+from .pzze import readPZZE
 
 class TactPkg(BrStruct):
     def __init__(self):
@@ -135,7 +135,20 @@ if __name__ == "__main__":
     file_name = filepath.split("\\")[-1]
     file_name = file_name.split(".")[0]
     with open(filepath, "rb") as f:
-        br = BinaryReader(f.read())
-        tactpkg = br.read_struct(TactPkg, None, file_name)
+        #read 4 first bytes to check if it's a tactpkg file
+        magic = f.read(4).decode('utf-8')
+        if magic == "PZZE":
+            compressed = readPZZE(filepath)
+            
+            uncompressed = compressed.decompress()
+
+            br = BinaryReader(uncompressed)
+            tactpkg = br.read_struct(TactPkg, None, file_name)
+        
+        else:
+            f.seek(0)
+        
+            br = BinaryReader(f.read())
+            tactpkg = br.read_struct(TactPkg, None, file_name)
         print(tactpkg)
         

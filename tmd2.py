@@ -401,6 +401,11 @@ class TMD2(BrStruct):
                 scaled[max_idx] = min(255, max(0, scaled[max_idx] + diff))
             return scaled[:4], scaled[4:]
         
+        '''def encode_weights_8(total_weights):
+            scaled = [int(round(w * 255)) for w in total_weights]
+
+            return scaled[:4], scaled[4:]'''
+        
         #write the vertex buffer
         vertexBuffer = BinaryReader()
         vertex_format = ''

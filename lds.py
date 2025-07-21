@@ -53,20 +53,3 @@ class LDS(BrStruct):
         br.seek(sizePos)
         br.write_uint32(br.size())
 
-
-if __name__ == "__main__":
-    # Example usage
-    lds_path = r"G:\Dev\BlenderTMD2\tamLib\bg_adv_001tex0_decompressed.lds"
-    
-    with open(lds_path, "rb") as f:
-        data = f.read()
-    
-    br = BinaryReader(data, endianness=Endian.LITTLE)
-    lds = br.read_struct(LDS)
-
-    #dump
-    path = r"G:\Dev\BlenderTMD2\tamLib\output"
-    
-    for i, texture in enumerate(lds.textures):
-        with open(f"{path}/texture_{i}.dds", "wb") as f:
-            f.write(texture)
