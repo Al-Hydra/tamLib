@@ -93,7 +93,7 @@ class TMD2(BrStruct):
         
         def unpack_normals(v):
             # Strip 4th component and normalize XYZ
-            f = ((v[..., :3].astype(np.float32) / 255.0) * 2.0) - 1.0
+            f = ((v.astype(np.float32) / 255.0) * 2.0) - 1.0
             norm = np.linalg.norm(f, axis=-1, keepdims=True)
             norm[norm == 0] = 1.0
             return f / norm
@@ -150,10 +150,32 @@ class TMD2(BrStruct):
         br.seek(self.verticesOffset, Whence.BEGIN)
         npVertexAtt = np.dtype(vertex_attributes)
         self.rawVertices = br.read_structured_array(npVertexAtt, self.vertexCount)
+        
+        converted_dtype = []
+        for name, dtype, size in vertex_attributes:
+            # Force all converted attributes to be float32
+            if name in _attribute_converters:
+                converted_dtype.append((name, 'f4', size))
+            else:
+                converted_dtype.append((name, dtype, size))
+
+        # Create an empty array with the new dtype
+        converted_vertices = np.empty(self.vertexCount, dtype=np.dtype(converted_dtype))
+
+        # Fill it using the converters
+        for name, _, _ in vertex_attributes:
+            src = self.rawVertices[name]
+            if name in _attribute_converters:
+                converted_vertices[name] = _attribute_converters[name](src)
+            else:
+                converted_vertices[name] = src
+
+        # Replace original with the converted
+        self.vertices = converted_vertices
 
         
         # Convert fields in bulk
-        converted_attributes = {}
+        '''converted_attributes = {}
         for name, dtype, size in vertex_attributes:
             column = self.rawVertices[name]
             if name in _attribute_converters:
@@ -161,26 +183,29 @@ class TMD2(BrStruct):
             converted_attributes[name] = column
 
         # Create and fill vertex objects
-        self.vertices = [TMD2Vertex() for _ in range(self.vertexCount)]
+        self.vertices = self.rawVertices'''
+        '''self.vertices = [TMD2Vertex() for _ in range(self.vertexCount)]
         for i in range(self.vertexCount):
             vertex = self.vertices[i]
             for name in converted_attributes:
-                setattr(vertex, name, list(converted_attributes[name][i]))
+                setattr(vertex, name, list(converted_attributes[name][i]))'''
 
         #print(self.vertices[0].__dict__)
 
         # Read triangle info
         br.seek(self.trianglesOffset, Whence.BEGIN)
         if self.modelFlags & 0x800:
-            self.triangles = [br.read_uint32(3) for _ in range(self.trianglesCount)]
+            tribuffer = br.read_bytes(self.trianglesCount * 3 * 4)
+            self.triangles = np.frombuffer(tribuffer, dtype=np.uint32).reshape(-1, 3)
         else:
-            self.triangles = [br.read_uint16(3) for _ in range(self.trianglesCount)]
+            tribuffer = br.read_bytes(self.trianglesCount * 3 * 2)
+            self.triangles = np.frombuffer(tribuffer, dtype=np.uint16).reshape(-1, 3)
 
 
         if self.modelFlags & 0x2000:
             #read all indices for the index table
             br.seek(self.tableIndicesOffset, Whence.BEGIN)
-            self.allIndices = [br.read_uint32() for i in range(self.tableIndicesCount)]
+            self.allIndices = br.read_uint32(self.tableIndicesCount)
             
             #pass the indices list to the index table class and read the individual index tables
             br.seek(self.indexTablesOffset, Whence.BEGIN)
@@ -765,8 +790,16 @@ class TMD2Submesh(BrStruct):
         self.trianglesCount = br.read_uint32()
         self.trianglesStart = br.read_uint32()
         
-        
-        vertex_map = {}  # Maps global index -> local index
+        tris = triangles[self.trianglesStart : self.trianglesStart + self.trianglesCount]
+
+        self.vertexIndices = np.unique(tris)
+
+        index_map = {global_idx: local_idx for local_idx, global_idx in enumerate(self.vertexIndices)}
+
+        remapped_tris = np.vectorize(index_map.get)(tris)  # shape: (count, 3)
+        self.triangles = remapped_tris.tolist()  # Convert to list of lists
+
+        '''vertex_map = {}  # Maps global index -> local index
 
         for tris in triangles[self.trianglesStart : self.trianglesStart + self.trianglesCount]:
             local_tri = []
@@ -775,7 +808,7 @@ class TMD2Submesh(BrStruct):
                     vertex_map[global_idx] = len(self.vertices)
                     self.vertices.append(vertices[global_idx])
                 local_tri.append(vertex_map[global_idx])
-            self.triangles.append(local_tri)
+            self.triangles.append(local_tri)'''
     
     def __br_write__(self, br, trianglesList, verticesList):
         br.write_uint32(len(self.triangles))  # Write triangle count
